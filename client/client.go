@@ -2,42 +2,58 @@ package main
 
 import (
 	"bufio"
+	"encoding/base64"
 	"errors"
+	"flag"
 	tls "github.com/refraction-networking/utls"
+	"httpt"
 	"log"
+	"net"
 	"net/http"
 	"net/http/httputil"
+	"reframer"
 	"strconv"
 	"strings"
 )
+
+// TODO: clean up descriptions
+var mode = flag.String("mode", "transparent", "tor/transparent/TODO/test.")
+var debug = flag.Bool("debug", true, "Enable debug output. Default: TODO.")
+var port = flag.Int("port", 4714, "Port for local transparent proxy")
+var addr = flag.String("addr", "52.33.220.110:2443", "")
+var sni = flag.String("sni", "sfrolov.io", "")
+var secretLink = flag.String("secret", "secretLink", "")
+
+var bufferSize = flag.Int("buffer", 0, "Size of buffer (in KB) for local buffering per connection. Set to 0 to turn off.")
 
 // TODO: try using/expanding the HTTPS client: use github.com/caddyserver/forwardproxy/httpclient ?
 
 var tlsDialer *tls.Roller
 
-func DialWS(id int, addr string, args map[string]string) error {
+// TODO: make error print vs dont before exit consistent
+func DialWS(addr string, args map[string]string, hello []byte) (net.Conn, []byte, error) {
 	serverName, ok := args["serverName"]
 	if !ok || serverName == "" {
 		err := errors.New("serverName argument is missing")
 		log.Println(err)
-		return err
+		return nil, nil, err
 	}
 
 	secretLink, ok := args["secretLink"]
 	if !ok || secretLink == "" {
 		err := errors.New("secretLink argument is missing")
 		log.Println(err)
-		return err
+		return nil, nil, err
 	}
 
-	//    // if id is nil, creates new connection to reframer server
+	//    // if reframerID is nil, creates new connection to reframer server
 	//    establish TLS to server
 	//    send HTTP/1.1 WS request. It will include the ID to reconnect, if reconnecting
 	//    WS response will include in the headers the InitialState or ReconnectState
 	conn, err := tlsDialer.Dial("tcp", addr, serverName)
 	if err != nil {
 		log.Println(err)
-		return err
+		return nil, nil, err
 	}
 
 	log.Printf("[uTLS] mimicking %v. ALPN offered: %v, chosen: %v\n",
@@ -45,66 +61,75 @@ func DialWS(id int, addr string, args map[string]string) error {
 
 	switch conn.HandshakeState.ServerHello.AlpnProtocol {
 	case "http/1.1", "":
-		req, err := http.NewRequest("GET", "/" + secretLink, nil)
+		req, err := http.NewRequest("GET", "/"+secretLink, nil)
 		if err != nil {
 			log.Println(err)
-			return err
+			return nil, nil, err
 		}
 		req.Host = serverName
+
 		req.Header.Set("Connection", "Upgrade")
 		req.Header.Set("Upgrade", "websocket")
-		req.Header.Set("X-Reframer-Id", strconv.Itoa(id))
+		req.Header.Set("X-ReframerCH", base64.StdEncoding.EncodeToString(hello))
 
 		// TODO: req.Header.Set("X-Padding", "[][]")
 
 		err = req.Write(conn)
 		if err != nil {
 			log.Printf("failed to write WebSocket Upgrade Request: %v\n", err)
-			return err
+			return nil, nil, err
 		}
 		log.Println("DEBUG wrote req, err", err)
 
 		resp, err := http.ReadResponse(bufio.NewReader(conn), req)
 		if err != nil {
 			log.Println(err)
-			return err
+			return nil, nil, err
 		}
 
 		if resp.Status == "101 Switching Protocols" &&
 			strings.ToLower(resp.Header.Get("Upgrade")) == "websocket" &&
 			strings.ToLower(resp.Header.Get("Connection")) == "upgrade" {
-			_, err = conn.Write([]byte("hi, I am PT client!"))
+
+			serverHello, err := base64.StdEncoding.DecodeString(resp.Header.Get("X-ReframerSH"))
 			if err != nil {
-				log.Println(err)
-				return err
+				return nil, nil, err
 			}
 
-			buf := make([]byte, 1024)
-			n, err := conn.Read(buf)
-			log.Println(string(buf[:n]), err)
+			if len(serverHello) == 0 {
+				return conn, nil, errors.New("empty ServerHello")
+			}
+
+			return conn, serverHello, nil
 		} else {
 			respBytes, err := httputil.DumpResponse(resp, false)
 			if err != nil {
 				log.Println(err)
-				return err
+				return nil, nil, err
 			}
-			err = errors.New("Got unexpected response:\n" + string(respBytes) + "\nstatus:" +resp.Status)
+			err = errors.New("Got unexpected response:\n" + string(respBytes) + "\nstatus:" + resp.Status)
 			log.Println(err)
-			return err
+			return nil, nil, err
 		}
 	case "h2":
-		log.Printf("http2 is not implemented yet\n")
-		return err
+		return nil, nil, errors.New("http2 is not implemented yet")
 	default:
-		log.Println("Unknown ALPN", conn.HandshakeState.ServerHello.AlpnProtocol)
-		return err
+		return nil, nil, errors.New("Unknown ALPN: " + conn.HandshakeState.ServerHello.AlpnProtocol)
 	}
 
-	return nil
+	return nil, nil, err
 }
 
 func main() {
-	log.SetFlags(log.Ltime | log.Lshortfile)
+	flag.Parse()
+
+	if *debug {
+		log.SetFlags(log.Lmicroseconds | log.Lshortfile)
+	} else {
+		log.SetFlags(log.Lmicroseconds | log.Ldate)
+	}
+	log.SetPrefix("[init] ")
+
 	// hook up Reframer with:
 	// func DialWS(id connectionID)
 	var err error
@@ -117,10 +142,45 @@ func main() {
 	// TODO: remove next line when h2 is implemented
 	tlsDialer.HelloIDs = []tls.ClientHelloID{tls.HelloRandomizedNoALPN}
 
-	_ = DialWS(0, "52.33.220.110:443", map[string]string{"serverName" : "sfrolov.io",
-		"secretLink" : "secretLink"})
-	_ = DialWS(0, "52.33.220.110:2443", map[string]string{"serverName" : "sfrolov.io",
-		"secretLink" : "secretLink"})
-	_ = DialWS(0, "52.33.220.110:3443", map[string]string{"serverName" : "sfrolov.io",
-		"secretLink" : "secretLink"})
+	switch *mode {
+	case "test":
+		//conn, err := DialWS(0, "52.33.220.110:443", map[string]string{"serverName" : "sfrolov.io",
+		//	"secretLink" : "secretLink"})
+		//if err != nil {
+		//	log.Fatalln(err)
+		//}
+		//_ = DialWS(0, "52.33.220.110:2443", map[string]string{"serverName" : "sfrolov.io",
+		//	"secretLink" : "secretLink"})
+		//_ = DialWS(0, "52.33.220.110:3443", map[string]string{"serverName" : "sfrolov.io",
+		//	"secretLink" : "secretLink"})
+	case "transparent":
+		ln, err := net.Listen("tcp", "localhost:"+strconv.Itoa(*port))
+		if err != nil {
+			log.Fatalln(err)
+		}
+		log.Println("Listening for incoming connections on", ln.Addr().String())
+		// TODO: more info where connecting and with which options
+
+		log.SetPrefix("[runtime] ")
+		for {
+			clientConn, err := ln.Accept()
+			if err != nil {
+				log.Println("Failed to accept connection:", err)
+				continue
+			}
+
+			cb := reframer.ClientBuilder{
+				MaxRecvBuffer: 4096,
+				MaxSendBuffer: 4096,
+				Dial:          DialWS,
+			}
+			serverConn, err := cb.Connect(*addr, map[string]string{"serverName": *sni,
+				"secretLink": *secretLink})
+			if err != nil {
+				log.Fatalln(err)
+			}
+
+			go httpt.TransparentProxy(clientConn, serverConn)
+		}
+	}
 }
