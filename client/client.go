@@ -20,7 +20,7 @@ import (
 var mode = flag.String("mode", "transparent", "tor/transparent/TODO/test.")
 var debug = flag.Bool("debug", true, "Enable debug output. Default: TODO.")
 var port = flag.Int("port", 4714, "Port for local transparent proxy")
-var addr = flag.String("addr", "52.33.220.110:2443", "")
+var addr = flag.String("addr", "52.33.220.110:443", "")
 var sni = flag.String("sni", "sfrolov.io", "")
 var secretLink = flag.String("secret", "secretLink", "")
 

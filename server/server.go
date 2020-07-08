@@ -114,8 +114,6 @@ func handleConn(clientConn net.Conn) error {
 	reframer := reframer.ServerBuilder{
 		GenerateInitialResponse: GenerateInitialWSResponse,
 		ReadInitialRequest:      ReadInitiaWSRequest,
-		MaxRecvBuffer:           22222,
-		MaxSendBuffer:           33333,
 	}
 
 	defer func() {
@@ -141,7 +139,6 @@ func handleConn(clientConn net.Conn) error {
 	}
 
 	return httpt.TransparentProxy(reframedConn, serverConn)
-
 }
 
 func main() {
