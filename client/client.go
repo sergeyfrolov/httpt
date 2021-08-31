@@ -5,7 +5,6 @@ import (
 	"encoding/base64"
 	"errors"
 	"flag"
-	tls "github.com/refraction-networking/utls"
 	"httpt"
 	"log"
 	"net"
@@ -13,6 +12,8 @@ import (
 	"net/http/httputil"
 	"strconv"
 	"strings"
+
+	tls "github.com/refraction-networking/utls"
 )
 
 // TODO: clean up descriptions
@@ -176,7 +177,7 @@ func main() {
 func handleConn(clientConn net.Conn) {
 	defer clientConn.Close()
 
-	log.SetPrefix("["+ clientConn.RemoteAddr().String() + "] ")
+	log.SetPrefix("[" + clientConn.RemoteAddr().String() + "] ")
 
 	req, err := http.ReadRequest(bufio.NewReader(clientConn))
 	if err != nil {
@@ -186,7 +187,7 @@ func handleConn(clientConn net.Conn) {
 
 	if req.Method != "CONNECT" {
 		dump, dumpErr := httputil.DumpRequest(req, true)
-		log.Println("unexpected request" , dump, "\nerror:", dumpErr)
+		log.Println("unexpected request", dump, "\nerror:", dumpErr)
 		return
 	}
 
@@ -198,7 +199,8 @@ func handleConn(clientConn net.Conn) {
 	}
 	err = res.Write(clientConn)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return
 	}
 
 	hello := make([]byte, 1024)
@@ -211,9 +213,9 @@ func handleConn(clientConn net.Conn) {
 	serverConn, _, err := DialWS(*addr, map[string]string{"serverName": *sni,
 		"secretLink": *secretLink}, req.RequestURI, hello[:n])
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return
 	}
-
 
 	httpt.TransparentProxy(clientConn, serverConn)
 }
