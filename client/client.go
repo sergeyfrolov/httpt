@@ -199,7 +199,8 @@ func handleConn(clientConn net.Conn) {
 	}
 	err = res.Write(clientConn)
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return
 	}
 
 	hello := make([]byte, 1024)
@@ -212,7 +213,8 @@ func handleConn(clientConn net.Conn) {
 	serverConn, _, err := DialWS(*addr, map[string]string{"serverName": *sni,
 		"secretLink": *secretLink}, req.RequestURI, hello[:n])
 	if err != nil {
-		log.Fatalln(err)
+		log.Println(err)
+		return
 	}
 
 	httpt.TransparentProxy(clientConn, serverConn)
