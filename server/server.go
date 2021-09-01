@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/base64"
 	"flag"
 	"fmt"
 	"httpt"
@@ -59,13 +58,13 @@ func ReadInitiaWSRequest(clientConn net.Conn) (string, []byte, interface{}, erro
 				strings.ToLower(req.Header.Get("Upgrade")))
 		}
 
-		clientHello, err := base64.StdEncoding.DecodeString(req.Header.Get("X-ReframerCH"))
-		if err != nil {
-			return "", nil, nil, err
-		}
+		// clientHello, err := base64.StdEncoding.DecodeString(req.Header.Get("X-ReframerCH"))
+		// if err != nil {
+		// 	return "", nil, nil, err
+		// }
 		targetAddr := req.Header.Get("X-TargetAddr")
 
-		return targetAddr, clientHello, req, nil
+		return targetAddr, nil, req, nil
 	} else {
 		// TODO: golang.org/x/net/http2 instead
 		req, err := http.ReadRequest(connReader)
@@ -103,16 +102,16 @@ func GenerateInitialWSResponse(hello []byte, _req interface{}) ([]byte, error) {
 	}
 	resp.Header.Set("Upgrade", req.Header.Get("Upgrade"))
 	resp.Header.Set("Connection", req.Header.Get("Connection"))
-	if len(hello) > 0 {
-		resp.Header.Set("X-ReframerSH", base64.StdEncoding.EncodeToString(hello))
-	}
+	// if len(hello) > 0 {
+	// 	resp.Header.Set("X-ReframerSH", base64.StdEncoding.EncodeToString(hello))
+	// }
 
 	log.Println("GenerateInitialWSResponse")
 	return httputil.DumpResponse(&resp, true)
 }
 
 func handleConn(clientConn net.Conn) error {
-	log.SetPrefix("["+ clientConn.LocalAddr().String() + "] ")
+	log.SetPrefix("[" + clientConn.LocalAddr().String() + "] ")
 	defer func() {
 		closeErr := clientConn.Close()
 		if closeErr == nil {
@@ -122,7 +121,7 @@ func handleConn(clientConn net.Conn) error {
 		}
 	}()
 
-	targetAddr, clientHello, req, err := ReadInitiaWSRequest(clientConn)
+	targetAddr, _, req, err := ReadInitiaWSRequest(clientConn)
 	if err != nil {
 		log.Println("error reading initial request", err)
 		return err
@@ -147,11 +146,11 @@ func handleConn(clientConn net.Conn) error {
 		return err
 	}
 
-	_, err = serverConn.Write(clientHello)
-	if err != nil {
-		log.Println("error sending initial client request to the target:", err)
-		return err
-	}
+	// _, err = serverConn.Write(clientHello)
+	// if err != nil {
+	// 	log.Println("error sending initial client request to the target:", err)
+	// 	return err
+	// }
 
 	return httpt.TransparentProxy(clientConn, serverConn)
 }
