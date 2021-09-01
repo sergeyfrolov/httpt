@@ -209,7 +209,7 @@ func handleConn(clientConn net.Conn) {
 	}
 
 	serverConn, _, err := DialWS(*addr, map[string]string{"serverName": *sni,
-		"secretLink": *secretLink}, req.RequestURI, hello[:n])
+		"secretLink": *secretLink}, req.URL.Host, hello[:n])
 	if err != nil {
 		log.Fatalln(err)
 	}
